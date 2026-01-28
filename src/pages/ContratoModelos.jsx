@@ -11,15 +11,38 @@ import {
   Edit,
   Trash2,
   Copy,
-  FileSignature
+  FileSignature,
+  LayoutGrid,
+  List,
+  MoreVertical,
+  CheckCircle2,
+  XCircle
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import ContratoModeloModal from "@/components/contratos/ContratoModeloModal";
 import ContratoModeloCard from "@/components/contratos/ContratoModeloCard";
+import { useViewPreference } from "@/hooks/useViewPreference";
+import ViewHeader from "@/components/common/ViewHeader";
 
 export default function ContratoModelos() {
   const [showModal, setShowModal] = useState(false);
   const [editingModelo, setEditingModelo] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useViewPreference('contrato-modelos-view-mode', 'cards');
   const queryClient = useQueryClient();
 
   const { data: modelos = [], isLoading } = useQuery({
@@ -108,56 +131,120 @@ export default function ContratoModelos() {
       </div>
 
       {/* Lista de Modelos */}
-      <Card className="border-none shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <Input
-                placeholder="Buscar modelos..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+      <ViewHeader
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        placeholder="Buscar modelos..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
 
-          {isLoading ? (
-            <div className="text-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-              <p className="text-slate-500 mt-4">Carregando modelos...</p>
-            </div>
-          ) : modelosFiltrados.length === 0 ? (
-            <div className="text-center py-12 bg-slate-50 rounded-lg">
-              <FileSignature className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-600 mb-2">
-                {searchTerm ? 'Nenhum modelo encontrado' : 'Nenhum modelo cadastrado'}
-              </h3>
-              <p className="text-slate-400 mb-6">
-                {searchTerm ? 'Tente buscar com outros termos' : 'Crie seu primeiro modelo para começar'}
-              </p>
-              <Button
-                onClick={() => setShowModal(true)}
-                className="bg-gradient-to-r from-purple-500 to-indigo-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Criar Primeiro Modelo
-              </Button>
-            </div>
-          ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {isLoading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="text-slate-500 mt-4">Carregando modelos...</p>
+        </div>
+      ) : modelosFiltrados.length === 0 ? (
+        <Card className="border-none shadow-lg">
+          <CardContent className="text-center py-12">
+            <FileSignature className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-slate-600 mb-2">
+              {searchTerm ? 'Nenhum modelo encontrado' : 'Nenhum modelo cadastrado'}
+            </h3>
+            <p className="text-slate-400 mb-6">
+              {searchTerm ? 'Tente buscar com outros termos' : 'Crie seu primeiro modelo para começar'}
+            </p>
+            <Button
+              onClick={() => setShowModal(true)}
+              className="bg-gradient-to-r from-purple-500 to-indigo-500"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Criar Primeiro Modelo
+            </Button>
+          </CardContent>
+        </Card>
+      ) : viewMode === 'cards' ? (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {modelosFiltrados.map((modelo) => (
+            <ContratoModeloCard
+              key={modelo.id}
+              modelo={modelo}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
+          ))}
+        </div>
+      ) : (
+        <Card className="border-none shadow-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50 hover:bg-slate-50">
+                <TableHead>Modelo</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {modelosFiltrados.map((modelo) => (
-                <ContratoModeloCard
-                  key={modelo.id}
-                  modelo={modelo}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
+                <TableRow key={modelo.id}>
+                  <TableCell className="font-medium">
+                    <div>
+                      <p className="text-slate-800 font-semibold">{modelo.nome_modelo}</p>
+                      <p className="text-xs text-slate-500">{modelo.titulo}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800">
+                      {modelo.tipo_contrato || 'Geral'}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${modelo.ativo ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-700'
+                      }`}>
+                      {modelo.ativo ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Ativo
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-3.5 h-3.5" />
+                          Inativo
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Abrir menu</span>
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => handleEdit(modelo)}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-600 focus:text-red-700"
+                          onClick={() => handleDelete(modelo.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
               ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </TableBody>
+          </Table>
+        </Card>
+      )}
 
       {showModal && (
         <ContratoModeloModal

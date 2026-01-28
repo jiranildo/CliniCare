@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
@@ -7,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import AgendamentoModal from "@/components/agendamentos/AgendamentoModal";
 import {
   Calendar,
   FileText,
@@ -23,7 +23,7 @@ import {
   Search,
   ArrowRight
 } from "lucide-react";
-import { format, parseISO, isFuture, isPast, isToday } from "date-fns";
+import { format, parseISO, isFuture, isToday, isPast } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export default function AreaPaciente() {
@@ -32,13 +32,17 @@ export default function AreaPaciente() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Modal states
+  const [showAgendamentoModal, setShowAgendamentoModal] = useState(false);
+  const [agendamentoSelecionado, setAgendamentoSelecionado] = useState(null);
+
   useEffect(() => {
     const loadUser = async () => {
       try {
         const userData = await base44.auth.me();
         setUser(userData);
         setIsAdmin(userData.role === 'admin');
-        
+
         // Se é admin, buscar paciente selecionado do localStorage
         if (userData.role === 'admin') {
           const pacienteSelecionadoId = localStorage.getItem('admin_paciente_selecionado');
@@ -53,12 +57,16 @@ export default function AreaPaciente() {
           const pacientes = await base44.entities.Paciente.filter({ email: userData.email });
           if (pacientes && pacientes.length > 0) {
             setPaciente(pacientes[0]);
-            
+
             // Atualizar último acesso
-            await base44.entities.Paciente.update(pacientes[0].id, {
-              ...pacientes[0],
-              ultimo_acesso: new Date().toISOString()
-            });
+            try {
+              await base44.entities.Paciente.update(pacientes[0].id, {
+                ...pacientes[0],
+                ultimo_acesso: new Date().toISOString()
+              });
+            } catch (err) {
+              console.error("Erro ao atualizar ultimo acesso", err);
+            }
           }
         }
       } catch (error) {
@@ -96,13 +104,24 @@ export default function AreaPaciente() {
     queryKey: ['meu-contrato', paciente?.id],
     queryFn: async () => {
       if (!paciente) return null;
-      const contratos = await base44.entities.Contrato.filter({ 
-        paciente_id: paciente.id, 
-        status: 'ativo' 
+      const contratos = await base44.entities.Contrato.filter({
+        paciente_id: paciente.id,
+        status: 'ativo'
       });
       return contratos && contratos.length > 0 ? contratos[0] : null;
     },
     enabled: !!paciente,
+  });
+
+  const { data: profissionais = [] } = useQuery({
+    queryKey: ['profissionais-ativos'],
+    queryFn: async () => {
+      // Fetch all professionals. If there is an 'active' flag, filter by it.
+      // Assuming list returns all. 
+      const all = await base44.entities.Profissional.list('full_name');
+      return all;
+    },
+    enabled: !!paciente
   });
 
   const handleSelecionarPaciente = (pacienteSelecionado) => {
@@ -113,6 +132,16 @@ export default function AreaPaciente() {
   const handleVoltarSelecao = () => {
     localStorage.removeItem('admin_paciente_selecionado');
     setPaciente(null);
+  };
+
+  const handleNovoAgendamento = () => {
+    setAgendamentoSelecionado({
+      paciente_id: paciente.id,
+      paciente_nome: paciente.nome_completo,
+      status: 'agendado',
+      tipo_consulta: 'retorno' // Default
+    });
+    setShowAgendamentoModal(true);
   };
 
   // Se é admin e não selecionou paciente, mostrar lista de seleção
@@ -171,7 +200,7 @@ export default function AreaPaciente() {
                           {p.nome_completo?.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      
+
                       <div className="flex-1">
                         <h3 className="font-bold text-slate-800 group-hover:text-cyan-600 transition-colors">
                           {p.nome_completo}
@@ -261,6 +290,14 @@ export default function AreaPaciente() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button
+              onClick={handleNovoAgendamento}
+              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+            >
+              <Calendar className="w-4 h-4 mr-2" />
+              Novo Agendamento
+            </Button>
+
             {isAdmin && (
               <Button
                 onClick={handleVoltarSelecao}
@@ -518,6 +555,15 @@ export default function AreaPaciente() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {showAgendamentoModal && paciente && (
+          <AgendamentoModal
+            agendamento={agendamentoSelecionado}
+            pacientes={[paciente]}
+            profissionais={profissionais}
+            onClose={() => setShowAgendamentoModal(false)}
+          />
         )}
       </div>
     </div>

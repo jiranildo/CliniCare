@@ -1,12 +1,13 @@
 import React, { useState } from "react";
+import { useViewPreference } from "@/hooks/useViewPreference";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  DollarSign, 
-  TrendingUp, 
+import {
+  DollarSign,
+  TrendingUp,
   TrendingDown,
   Receipt,
   CreditCard,
@@ -20,6 +21,8 @@ import NotasFiscaisTab from "@/components/financeiro/NotasFiscaisTab";
 import GestaoFinanceiraPacientes from "@/components/financeiro/GestaoFinanceiraPacientes";
 
 export default function Financeiro() {
+  const [activeTab, setActiveTab] = useViewPreference('financeiro-active-tab', 'gestao-pacientes');
+
   const { data: pagamentos = [] } = useQuery({
     queryKey: ['pagamentos'],
     queryFn: () => base44.entities.Pagamento.list('-data_vencimento'),
@@ -124,7 +127,7 @@ export default function Financeiro() {
         ))}
       </div>
 
-      <Tabs defaultValue="gestao-pacientes" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-white border shadow-sm">
           <TabsTrigger value="gestao-pacientes" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500 data-[state=active]:to-teal-500 data-[state=active]:text-white">
             <Users className="w-4 h-4 mr-2" />
@@ -141,8 +144,8 @@ export default function Financeiro() {
         </TabsList>
 
         <TabsContent value="gestao-pacientes">
-          <GestaoFinanceiraPacientes 
-            pacientes={pacientes} 
+          <GestaoFinanceiraPacientes
+            pacientes={pacientes}
             pagamentos={pagamentos}
             notasFiscais={notasFiscais}
           />

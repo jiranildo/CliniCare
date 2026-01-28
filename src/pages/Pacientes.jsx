@@ -1,11 +1,11 @@
 import React, { useState } from "react";
+import { useViewPreference } from "@/hooks/useViewPreference";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Users, Plus, Search, Grid3x3, List } from "lucide-react";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Users, Plus } from "lucide-react";
+import ViewHeader from "@/components/common/ViewHeader";
 import PacienteModal from "@/components/pacientes/PacienteModal";
 import PacienteCard from "@/components/pacientes/PacienteCard";
 import PacienteLista from "@/components/pacientes/PacienteLista";
@@ -14,7 +14,7 @@ export default function Pacientes() {
   const [showModal, setShowModal] = useState(false);
   const [editingPaciente, setEditingPaciente] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [visualizacao, setVisualizacao] = useState('cards'); // 'cards' ou 'lista'
+  const [visualizacao, setVisualizacao] = useViewPreference('pacientes-view-mode', 'cards'); // 'cards' ou 'lista'
   const queryClient = useQueryClient();
 
   const { data: pacientes = [], isLoading } = useQuery({
@@ -61,7 +61,7 @@ export default function Pacientes() {
           </h1>
           <p className="text-slate-500 mt-1">Gerencie o cadastro de pacientes</p>
         </div>
-        <Button 
+        <Button
           onClick={() => setShowModal(true)}
           className="bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 shadow-lg"
         >
@@ -70,34 +70,13 @@ export default function Pacientes() {
         </Button>
       </div>
 
-      <Card className="border-none shadow-lg">
-        <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-            <div className="relative flex-1 max-w-md w-full">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <Input
-                placeholder="Buscar por nome, CPF ou telefone..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            
-            <Tabs value={visualizacao} onValueChange={setVisualizacao}>
-              <TabsList className="bg-slate-100">
-                <TabsTrigger value="cards" className="gap-2">
-                  <Grid3x3 className="w-4 h-4" />
-                  Cards
-                </TabsTrigger>
-                <TabsTrigger value="lista" className="gap-2">
-                  <List className="w-4 h-4" />
-                  Lista
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-        </CardContent>
-      </Card>
+      <ViewHeader
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        placeholder="Buscar por nome, CPF ou telefone..."
+        viewMode={visualizacao}
+        onViewModeChange={setVisualizacao}
+      />
 
       {isLoading ? (
         <div className="text-center py-12">
@@ -115,7 +94,7 @@ export default function Pacientes() {
               {searchTerm ? 'Tente buscar com outros termos' : 'Comece adicionando um novo paciente'}
             </p>
             {!searchTerm && (
-              <Button 
+              <Button
                 onClick={() => setShowModal(true)}
                 className="bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600"
               >

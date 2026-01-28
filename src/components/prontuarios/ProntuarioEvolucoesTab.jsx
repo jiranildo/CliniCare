@@ -296,7 +296,8 @@ function EvolucaoModal({ evolucao, paciente, agendamentos, user, onClose }) {
       toast({
         title: "Sucesso!",
         description: "Atendimento salvo com sucesso.",
-        className: "bg-green-500 text-white border-none"
+        className: "bg-green-500 text-white border-none",
+        duration: 5000
       });
       onClose();
     },

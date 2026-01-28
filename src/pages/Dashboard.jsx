@@ -24,7 +24,8 @@ import {
   Filter,
   CalendarDays,
   AlertCircle,
-  CreditCard
+  CreditCard,
+  FileSignature
 } from "lucide-react";
 import {
   format,
@@ -58,6 +59,7 @@ import {
 } from "recharts";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { getDadosFinanceirosPacienteHelper } from "@/utils/financeiroUtils";
 
 import { useAuth } from "@/lib/AuthContext";
 
@@ -696,6 +698,200 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* --- NOVO DASHBOARD FINANCEIRO DETALHADO --- */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+          <DollarSign className="w-6 h-6 text-emerald-600" />
+          Visão Financeira Detalhada
+        </h2>
+
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {(() => {
+            // CÁLCULOS FINANCEIROS (Unificado com GestaoFinanceiraPacientes)
+
+            const dadosFinanceiros = useMemo(() => {
+              const hoje = new Date();
+              return pacientes.map(p =>
+                getDadosFinanceirosPacienteHelper(p, contratos, evolucoes, pagamentos, [], hoje)
+              );
+            }, [pacientes, contratos, evolucoes, pagamentos]);
+
+            const valorContratadoGeral = dadosFinanceiros.reduce((acc, d) => acc + d.valorContratado, 0);
+
+            // Valor Devido Geral agora inclui dívidas implícitas (calculadas) e explícitas (boletos)
+            // Filtrando apenas o que é realmente devido (pendente ou atrasado)
+            const valorDevidoGeral = dadosFinanceiros.reduce((acc, d) => acc + d.valorDevidoReal, 0);
+
+            // PIE CHART: STATUS DE PAGAMENTO (Por Valor)
+            // Agregando valores pagos vs devidos
+            const statusPagamentoData = (() => {
+              let pago = 0;
+              let pendente = 0;
+              let atrasado = 0;
+
+              dadosFinanceiros.forEach(d => {
+                // Soma tudo que já foi pago
+                pago += d.valorPagoReal;
+
+                // Soma o restante devido baseado no status
+                if (d.valorDevidoReal > 0) {
+                  if (d.statusPagamento === 'atrasado') {
+                    atrasado += d.valorDevidoReal;
+                  } else {
+                    pendente += d.valorDevidoReal;
+                  }
+                }
+              });
+
+              return [
+                { name: 'Pago', value: pago, color: '#10b981' },
+                { name: 'Pendente', value: pendente, color: '#f59e0b' },
+                { name: 'Atrasado', value: atrasado, color: '#ef4444' },
+              ].filter(item => item.value > 0);
+            })();
+
+            // BAR CHART: VENCIMENTOS POR DATA (Próximos 30 dias ou período filtrado)
+            // Mantendo lógica original de varredura de pagamentos para previsão futura detalhada,
+            // mas apenas para boletos existentes, pois "calculado" não tem data de vencimento fixa no banco ainda (assume-se hoje ou fim do mês).
+            // Se quisermos incluir o valor calculado no gráfico, assumimos vencimento hoje/fim do mês.
+            const vencimentosPorData = (() => {
+              const dados = {};
+
+              // 1. Pagamentos explícitos
+              pagamentos
+                .filter(p => ['pendente', 'parcial', 'atrasado'].includes(p.status) && p.data_vencimento)
+                .forEach(p => {
+                  const data = new Date(p.data_vencimento);
+                  const diaMes = format(data, 'dd/MM', { locale: ptBR });
+                  dados[diaMes] = (dados[diaMes] || 0) + (Number(p.valor || 0) - Number(p.valor_pago || 0));
+                });
+
+              // 2. Valores calculados (Implícitos) - Assumimos vencimento para o dia atual ou fim do mês?
+              // Para consistência visual, vamos agrupar no final do mês atual ou 'HOJE'.
+              // Vamos colocar no dia atual para alerta.
+              const hojeStr = format(new Date(), 'dd/MM', { locale: ptBR });
+
+              dadosFinanceiros.forEach(d => {
+                // Se é calculado e não tem pagamento gerado
+                if (d.valorDevidoReal > 0 && !d.pagamento && d.statusPagamento !== 'pago') {
+                  dados[hojeStr] = (dados[hojeStr] || 0) + d.valorDevidoReal;
+                }
+              });
+
+              return Object.entries(dados)
+                .map(([name, value]) => ({ name, value }))
+                .sort((a, b) => {
+                  const [da, ma] = a.name.split('/').map(Number);
+                  const [db, mb] = b.name.split('/').map(Number);
+                  if (ma !== mb) return ma - mb;
+                  return da - db;
+                })
+                .slice(0, 10);
+            })();
+
+            return (
+              <>
+                <Card className="border-none shadow-lg bg-gradient-to-br from-emerald-50 to-teal-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-emerald-800 flex items-center gap-2">
+                      <FileSignature className="w-4 h-4" />
+                      Valor Contratado (Mês Atual)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-emerald-900">
+                      R$ {valorContratadoGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </div>
+                    <p className="text-xs text-emerald-600 mt-1 opacity-80">
+                      Total base mensal dos contratos ativos
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-none shadow-lg bg-gradient-to-br from-red-50 to-orange-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-red-800 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4" />
+                      Valor Devido Geral
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-red-900">
+                      R$ {valorDevidoGeral.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </div>
+                    <p className="text-xs text-red-600 mt-1 opacity-80">
+                      Total pendente (Boletos + Serviços)
+                    </p>
+                  </CardContent>
+                </Card>
+
+                {/* ... charts ... */}
+
+
+                <Card className="border-none shadow-lg md:col-span-2 lg:col-span-1">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-slate-800 text-sm font-medium">Status de Pagamento (Valor)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[200px] flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPieChart>
+                        <Pie
+                          data={statusPagamentoData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={40}
+                          outerRadius={70}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {statusPagamentoData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value) => `R$ ${Number(value).toFixed(2)}`} />
+                        <Legend layout="horizontal" verticalAlign="bottom" align="center" iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-none shadow-lg md:col-span-2 lg:col-span-1">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-slate-800 text-sm font-medium">Próximos Vencimentos</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[200px]">
+                    {vencimentosPorData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={vencimentosPorData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
+                          <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `R$${val / 1000}k`} />
+                          <Tooltip
+                            formatter={(value) => `R$ ${Number(value).toFixed(2)}`}
+                            cursor={{ fill: '#f8fafc' }}
+                            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20}>
+                            {vencimentosPorData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#6366f1' : '#818cf8'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+                        <CheckCircle2 className="w-8 h-8 text-green-100" />
+                        <span className="text-xs">Nenhum vencimento próximo</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       <Dialog open={showCustomDialog} onOpenChange={setShowCustomDialog}>

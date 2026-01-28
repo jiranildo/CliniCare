@@ -4,15 +4,33 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ClipboardList, Plus, Search, Filter } from "lucide-react";
+import { ClipboardList, Plus, Search, Filter, LayoutGrid, List, MoreVertical, Edit, Trash2, CheckCircle, Clock, AlertCircle, Ban } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import AtividadeModal from "@/components/atividades/AtividadeModal";
 import AtividadeCard from "@/components/atividades/AtividadeCard";
+import { useViewPreference } from "@/hooks/useViewPreference";
+import ViewHeader from "@/components/common/ViewHeader";
 
 export default function Atividades() {
   const [showModal, setShowModal] = useState(false);
   const [editingAtividade, setEditingAtividade] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [viewMode, setViewMode] = useViewPreference('atividades-view-mode', 'cards');
   const queryClient = useQueryClient();
 
   const { data: atividades = [], isLoading } = useQuery({
@@ -139,35 +157,29 @@ export default function Atividades() {
         </Card>
       </div>
 
-      <Card className="border-none shadow-lg">
-        <CardContent className="p-6 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <Input
-              placeholder="Buscar por título ou paciente..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <Filter className="w-5 h-5 text-slate-600" />
-            <span className="text-sm font-medium text-slate-600">Status:</span>
-            {statusOptions.map(opt => (
-              <Button
-                key={opt.value}
-                variant={filtroStatus === opt.value ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFiltroStatus(opt.value)}
-                className={filtroStatus === opt.value ? "bg-gradient-to-r from-cyan-500 to-teal-500" : ""}
-              >
-                {opt.label}
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <ViewHeader
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        placeholder="Buscar por título ou paciente..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="w-5 h-5 text-slate-600" />
+          <span className="text-sm font-medium text-slate-600">Status:</span>
+          {statusOptions.map(opt => (
+            <Button
+              key={opt.value}
+              variant={filtroStatus === opt.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setFiltroStatus(opt.value)}
+              className={filtroStatus === opt.value ? "bg-gradient-to-r from-cyan-500 to-teal-500" : ""}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+      </ViewHeader>
 
       {isLoading ? (
         <div className="text-center py-12">
@@ -195,7 +207,7 @@ export default function Atividades() {
             )}
           </CardContent>
         </Card>
-      ) : (
+      ) : viewMode === 'cards' ? (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {atividadesFiltradas.map((atividade) => (
             <AtividadeCard
@@ -207,6 +219,79 @@ export default function Atividades() {
             />
           ))}
         </div>
+      ) : (
+        <Card className="border-none shadow-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50 hover:bg-slate-50">
+                <TableHead className="w-[300px]">Atividade</TableHead>
+                <TableHead>Paciente</TableHead>
+                <TableHead>Prazo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {atividadesFiltradas.map((atividade) => (
+                <TableRow key={atividade.id}>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${atividade.status === 'concluido' ? 'bg-green-100 text-green-600' :
+                        atividade.status === 'pendente' ? 'bg-amber-100 text-amber-600' :
+                          atividade.status === 'cancelado' ? 'bg-red-100 text-red-600' :
+                            'bg-blue-100 text-blue-600'
+                        }`}>
+                        {atividade.status === 'concluido' ? <CheckCircle className="w-4 h-4" /> :
+                          atividade.status === 'pendente' ? <AlertCircle className="w-4 h-4" /> :
+                            atividade.status === 'cancelado' ? <Ban className="w-4 h-4" /> :
+                              <Clock className="w-4 h-4" />}
+                      </div>
+                      <div>
+                        <p className="text-slate-800 font-semibold">{atividade.titulo}</p>
+                        <p className="text-xs text-slate-500 line-clamp-1">{atividade.descricao}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>{atividade.paciente_nome || 'N/A'}</TableCell>
+                  <TableCell>{atividade.data_prazo ? new Date(atividade.data_prazo).toLocaleDateString() : '-'}</TableCell>
+                  <TableCell>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${atividade.status === 'concluido' ? 'bg-green-100 text-green-800' :
+                      atividade.status === 'pendente' ? 'bg-amber-100 text-amber-800' :
+                        atividade.status === 'cancelado' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                      }`}>
+                      {statusOptions.find(o => o.value === atividade.status)?.label || atividade.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Abrir menu</span>
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => handleEdit(atividade)}>
+                          <Edit className="mr-2 h-4 w-4" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-600 focus:text-red-700"
+                          onClick={() => handleDelete(atividade.id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Excluir
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {showModal && (

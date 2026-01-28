@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useViewPreference } from "@/hooks/useViewPreference";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,8 +9,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   FileText,
   Plus,
-  Search,
-  Filter,
   CheckCircle2,
   Clock,
   AlertCircle,
@@ -17,8 +16,28 @@ import {
   RefreshCw,
   FileSignature,
   Calendar,
-  DollarSign
+  DollarSign,
+  MoreVertical,
+  Edit,
+  Trash2,
+  Eye
 } from "lucide-react";
+import ViewHeader from "@/components/common/ViewHeader";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import ContratoModal from "@/components/contratos/ContratoModal";
 import ContratoCard from "@/components/contratos/ContratoCard";
 
@@ -27,6 +46,8 @@ export default function Contratos() {
   const [editingContrato, setEditingContrato] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
+
+  const [viewMode, setViewMode] = useViewPreference('contratos-view-mode', 'cards');
   const queryClient = useQueryClient();
 
   const { data: contratos = [], isLoading } = useQuery({
@@ -171,20 +192,16 @@ export default function Contratos() {
         </Card>
       </div>
 
+      <ViewHeader
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        placeholder="Buscar por título, número ou paciente..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
+
       <Card className="border-none shadow-lg">
         <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-              <Input
-                placeholder="Buscar por título, número ou paciente..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="bg-slate-100 mb-6">
               <TabsTrigger value="todos">Todos</TabsTrigger>
@@ -218,7 +235,7 @@ export default function Contratos() {
                 Criar Primeiro Contrato
               </Button>
             </div>
-          ) : (
+          ) : viewMode === 'cards' ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {contratosFiltrados.map((contrato) => (
                 <ContratoCard
@@ -229,6 +246,78 @@ export default function Contratos() {
                   statusConfig={statusConfig}
                 />
               ))}
+            </div>
+          ) : (
+            <div className="rounded-md border border-slate-200 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                    <TableHead>Contrato</TableHead>
+                    <TableHead>Paciente</TableHead>
+                    <TableHead>Vigência</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contratosFiltrados.map((contrato) => {
+                    const StatusIcon = statusConfig[contrato.status]?.icon || FileText;
+                    return (
+                      <TableRow key={contrato.id}>
+                        <TableCell className="font-medium">
+                          <div>
+                            <p className="text-slate-800 font-semibold">{contrato.titulo}</p>
+                            <p className="text-xs text-slate-500">{contrato.numero_contrato || 'Sem número'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{contrato.paciente_nome}</TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <p>Início: {contrato.data_inicio ? new Date(contrato.data_inicio).toLocaleDateString() : '-'}</p>
+                            <p className="text-slate-500">Fim: {contrato.data_termino ? new Date(contrato.data_termino).toLocaleDateString() : '-'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium text-slate-700">
+                            {contrato.valor_mensal ? parseFloat(contrato.valor_mensal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${statusConfig[contrato.status]?.color}`}>
+                            <StatusIcon className="w-3.5 h-3.5" />
+                            {statusConfig[contrato.status]?.label}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">Abrir menu</span>
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                              <DropdownMenuItem onClick={() => handleEdit(contrato)}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-700"
+                                onClick={() => handleDelete(contrato.id)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

@@ -14,6 +14,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -32,17 +39,29 @@ import {
   FileText,
   Calendar,
   Activity,
-  RefreshCw
+  RefreshCw,
+  ArrowUpDown
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, isPast, parseISO, isWithinInterval } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import PagamentoModal from "@/components/financeiro/PagamentoModal";
 import NotaFiscalModal from "@/components/financeiro/NotaFiscalModal";
 import HistoricoFinanceiroModal from "@/components/financeiro/HistoricoFinanceiroModal";
+import { useMemo } from "react";
 
+
+import {
+  getValorContratado,
+  getConsultasTotais,
+  calcularValorDevido,
+  getDadosFinanceirosPacienteHelper
+} from "@/utils/financeiroUtils";
 
 export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notasFiscais }) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+
   const [showPagamentoModal, setShowPagamentoModal] = useState(false);
   const [showNotaModal, setShowNotaModal] = useState(false);
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
@@ -50,6 +69,8 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
   const queryClient = useQueryClient();
 
   const hoje = new Date();
+  // inicioMes and fimMes are handled inside helper now for data calc, but might be needed for other things? 
+  // keeping them if used elsewhere, but helper handles them for financial data.
   const inicioMes = startOfMonth(hoje);
   const fimMes = endOfMonth(hoje);
 
@@ -88,81 +109,132 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
 
   const isRefreshing = isRefetchingEvolucoes || isRefetchingContratos;
 
-  const getValorContratado = (paciente) => {
-    // Buscar contrato ativo do paciente
-    const contratoAtivo = contratos.find(c =>
-      c.paciente_id === paciente.id &&
-      c.status === 'ativo'
-    );
+  // Local wrappers for handlers that might need simple access or legacy compatibility
+  const getDadosFinanceirosPaciente = (paciente) => {
+    return getDadosFinanceirosPacienteHelper(paciente, contratos, evolucoes, pagamentos, notasFiscais, hoje);
+  };
 
-    if (contratoAtivo && contratoAtivo.valor_mensal) {
-      return contratoAtivo.valor_mensal;
+  // ... (handlers)
+
+
+  const getResponsavelFinanceiro = (paciente) => {
+    if (paciente.responsavel_financeiro_tipo === 'proprio_paciente') {
+      return {
+        nome: paciente.nome_completo,
+        telefone: paciente.telefone,
+        email: paciente.email
+      };
+    } else if (paciente.responsavel_financeiro_tipo === 'responsavel_legal') {
+      return {
+        nome: paciente.nome_responsavel_legal,
+        telefone: paciente.telefone_responsavel_legal,
+        email: paciente.email_responsavel_legal
+      };
+    } else {
+      return {
+        nome: paciente.nome_responsavel_financeiro,
+        telefone: paciente.telefone_responsavel_financeiro,
+        email: paciente.email_responsavel_financeiro
+      };
     }
-
-    return 0;
   };
 
-  const getConsultasTotais = (paciente) => {
-    // Buscar contrato ativo do paciente
-    const contratoAtivo = contratos.find(c =>
-      c.paciente_id === paciente.id &&
-      c.status === 'ativo'
-    );
-
-    if (!contratoAtivo || !contratoAtivo.servicos_inclusos) return 0;
-
-    // Procurar nos serviços inclusos por consultas
-    const servicoConsultas = contratoAtivo.servicos_inclusos.find(s =>
-      s.servico?.toLowerCase().includes('consulta') ||
-      s.periodicidade === 'mensal'
-    );
-
-    return servicoConsultas?.quantidade || 0;
-  };
-
-  const calcularValorDevido = (paciente) => {
-    // Contar evoluções do mês
-    const evolucoesDoMes = evolucoes.filter(e => {
-      if (e.paciente_id !== paciente.id) return false;
-      if (!e.data_atendimento) return false;
-
-      try {
-        const dataAtendimento = parseISO(e.data_atendimento);
-        return isWithinInterval(dataAtendimento, { start: inicioMes, end: fimMes });
-      } catch (error) {
-        console.error('Erro ao processar data:', e.data_atendimento, error);
-        return false;
-      }
+  // --- PROCESSING DATA FOR SORTING/FILTERING ---
+  const processedData = useMemo(() => {
+    return pacientes.map(paciente => {
+      const financeiro = getDadosFinanceirosPaciente(paciente);
+      const responsavel = getResponsavelFinanceiro(paciente);
+      return {
+        ...paciente,
+        financeiro,
+        responsavel
+      };
     });
+  }, [pacientes, pagamentos, notasFiscais, evolucoes, contratos]);
 
-    const quantidadeEvolucoes = evolucoesDoMes.length;
+  const filteredAndSortedData = useMemo(() => {
+    let result = processedData;
 
-    // Se não tem evolução no mês, não deve nada
-    if (quantidadeEvolucoes === 0) return 0;
-
-    // Buscar contrato ativo
-    const contratoAtivo = contratos.find(c =>
-      c.paciente_id === paciente.id &&
-      c.status === 'ativo'
-    );
-
-    // Se tem contrato ativo, calcular baseado no valor mensal
-    if (contratoAtivo && contratoAtivo.valor_mensal) {
-      const consultasTotais = getConsultasTotais(paciente);
-
-      // Se tem limite de consultas definido
-      if (consultasTotais > 0) {
-        const valorPorConsulta = contratoAtivo.valor_mensal / consultasTotais;
-        return quantidadeEvolucoes * valorPorConsulta;
-      }
-
-      // Se não tem limite, cobra o valor mensal fixo
-      return contratoAtivo.valor_mensal;
+    // Filter by Search
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(p =>
+        p.nome_completo?.toLowerCase().includes(term) ||
+        p.cpf?.includes(term) ||
+        p.telefone?.includes(term)
+      );
     }
 
-    // Se não tem contrato, retorna 0
-    return 0;
+    // Filter by Status
+    if (statusFilter && statusFilter !== 'all') {
+      result = result.filter(p => p.financeiro.statusPagamento === statusFilter);
+    }
+
+    // Sort
+    if (sortConfig.key) {
+      result.sort((a, b) => {
+        let aValue, bValue;
+
+        switch (sortConfig.key) {
+          case 'paciente':
+            aValue = a.nome_completo;
+            bValue = b.nome_completo;
+            break;
+          case 'vencimento':
+            // Assuming simple day comparison
+            // Use 99 for missing day to push to bottom/top
+            aValue = a.dia_vencimento || 99;
+            bValue = b.dia_vencimento || 99;
+            break;
+          case 'atendimentos':
+            aValue = a.financeiro.quantidadeEvolucoes;
+            bValue = b.financeiro.quantidadeEvolucoes;
+            break;
+          case 'valorContratado':
+            aValue = a.financeiro.valorContratado;
+            bValue = b.financeiro.valorContratado;
+            break;
+          case 'valorDevido':
+            aValue = a.financeiro.valorCalculado;
+            bValue = b.financeiro.valorCalculado;
+            break;
+          case 'status':
+            // Sort by status priority? or alphabetical?
+            // Let's do alphabetical for now or mapped priority
+            const priority = { 'atrasado': 0, 'pendente': 1, 'pago': 2, 'sem_atendimento': 3 };
+            aValue = priority[a.financeiro.statusPagamento] ?? 4;
+            bValue = priority[b.financeiro.statusPagamento] ?? 4;
+            break;
+          default:
+            return 0;
+        }
+
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [processedData, searchTerm, statusFilter, sortConfig]);
+
+  const requestSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
   };
+
+  const SortIcon = ({ columnKey }) => {
+    if (sortConfig.key !== columnKey) return <ArrowUpDown className="ml-2 h-4 w-4 text-slate-300" />;
+    if (sortConfig.direction === 'asc') return <ArrowUpDown className="ml-2 h-4 w-4 text-blue-600 rotate-180" />; // Or specific ArrowUp
+    return <ArrowUpDown className="ml-2 h-4 w-4 text-blue-600" />;
+  };
+
+  // Re-define handlers (Need to verify if I can just reference them or if I need to copy code)
+  // Since I am replacing the whole logic flow, I must ensure handles exist.
+  // The logic for handlers relies on `paciente` object. `filteredAndSortedData` items are extended `paciente` objects, so passing them to handlers works fine.
 
   const handleMarcarComoPago = async (paciente, pagamento, valorCalculado) => {
     if (!pagamento) {
@@ -198,19 +270,16 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
   };
 
   const handleEmitirNota = (paciente, valorCalculado) => {
-    // Calcular dados para pré-preenchimento
-    const dados = getDadosFinanceirosPaciente(paciente);
+    const dados = paciente.financeiro; // Use pre-calculated
     const contrato = dados.contratoAtivo;
     const mesReferencia = format(hoje, 'MMMM/yyyy', { locale: ptBR });
 
-    // Gerar descrição dos serviços
     let descricaoServicos = `Serviços de Psicologia - Mês de Referência: ${mesReferencia}`;
     if (contrato?.servicos_inclusos && contrato.servicos_inclusos.length > 0) {
       const servicos = contrato.servicos_inclusos.map(s => `${s.servico} (${s.quantidade}x)`).join(', ');
       descricaoServicos += `\nPacote Contratado: ${servicos}`;
     }
 
-    // Adicionar total de atendimentos realizados
     if (dados.quantidadeEvolucoes > 0) {
       descricaoServicos += `\nAtendimentos Realizados: ${dados.quantidadeEvolucoes}`;
     }
@@ -225,39 +294,21 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
   };
 
   const handleCobrar = async (paciente) => {
-    // Tentar obter dados com base no tipo de responsável
-    let targetNome = paciente.responsavel_financeiro_tipo === 'proprio_paciente'
-      ? paciente.nome_completo
-      : paciente.responsavel_financeiro_tipo === 'responsavel_legal'
-        ? paciente.nome_responsavel_legal
-        : paciente.nome_responsavel_financeiro;
+    let targetNome = paciente.responsavel.nome;
+    let targetTelefone = paciente.responsavel.telefone;
+    let targetEmail = paciente.responsavel.email;
 
-    let targetTelefone = paciente.responsavel_financeiro_tipo === 'proprio_paciente'
-      ? paciente.telefone
-      : paciente.responsavel_financeiro_tipo === 'responsavel_legal'
-        ? paciente.telefone_responsavel_legal
-        : paciente.telefone_responsavel_financeiro;
+    // Fallback logic is already in getResponsavel? No, getResponsavel just gets specific types.
+    // Let's start with what getResponsavel returned.
 
-    let targetEmail = paciente.responsavel_financeiro_tipo === 'proprio_paciente'
-      ? paciente.email
-      : paciente.responsavel_financeiro_tipo === 'responsavel_legal'
-        ? paciente.email_responsavel_legal
-        : paciente.email_responsavel_financeiro;
-
-    // Fallback: Se não encontrou contato específico do responsável, usar o do paciente
-    // Isso é comum quando o cadastro coloca o telefone do pai/mãe no campo 'telefone' do paciente
     if (!targetTelefone && !targetEmail) {
       if (paciente.telefone || paciente.email) {
-        // Se mudamos para o contato do paciente, talvez devêssemos usar o nome dele também?
-        // Ou assumimos que o telefone principal é do responsável mesmo.
-        // Vamos manter o nome do responsável se houver, senão o do paciente.
         targetNome = targetNome || paciente.nome_completo;
         targetTelefone = paciente.telefone;
         targetEmail = paciente.email;
       }
     }
 
-    // Garantir que temos um nome para a mensagem
     targetNome = targetNome || paciente.nome_completo;
 
     if (targetTelefone) {
@@ -274,91 +325,6 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
   const handleVerHistorico = (paciente) => {
     setPacienteSelecionado(paciente);
     setShowHistoricoModal(true);
-  };
-
-  const getDadosFinanceirosPaciente = (paciente) => {
-    const valorContratado = getValorContratado(paciente);
-    const valorCalculado = calcularValorDevido(paciente);
-    const consultasTotais = getConsultasTotais(paciente);
-
-    const pagamentoMes = pagamentos.find(p => {
-      if (p.paciente_id !== paciente.id) return false;
-      if (!p.data_vencimento) return false;
-
-      try {
-        const dataVencimento = parseISO(p.data_vencimento);
-        return isWithinInterval(dataVencimento, { start: inicioMes, end: fimMes });
-      } catch (error) {
-        return false;
-      }
-    });
-
-    const notaMes = notasFiscais.find(n => {
-      if (n.paciente_id !== paciente.id) return false;
-      const mesRef = format(hoje, 'yyyy-MM');
-      return n.mes_referencia === mesRef;
-    });
-
-    const evolucoesDoMes = evolucoes.filter(e => {
-      if (e.paciente_id !== paciente.id) return false;
-      if (!e.data_atendimento) return false;
-
-      try {
-        const dataAtendimento = parseISO(e.data_atendimento);
-        return isWithinInterval(dataAtendimento, { start: inicioMes, end: fimMes });
-      } catch (error) {
-        return false;
-      }
-    });
-
-    const contratoAtivo = contratos.find(c =>
-      c.paciente_id === paciente.id &&
-      c.status === 'ativo'
-    );
-
-    const jaFoiPago = pagamentoMes?.status === 'pago';
-    const estaAtrasado = pagamentoMes && pagamentoMes.status !== 'pago' && isPast(parseISO(pagamentoMes.data_vencimento));
-
-    return {
-      pagamento: pagamentoMes,
-      nota: notaMes,
-      jaFoiPago,
-      estaAtrasado,
-      valorContratado,
-      valorCalculado,
-      quantidadeEvolucoes: evolucoesDoMes.length,
-      consultasTotais,
-      statusPagamento: jaFoiPago ? 'pago' : estaAtrasado ? 'atrasado' : 'pendente',
-      contratoAtivo
-    };
-  };
-
-  const pacientesFiltrados = pacientes.filter(p =>
-    p.nome_completo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.cpf?.includes(searchTerm) ||
-    p.telefone?.includes(searchTerm)
-  );
-
-  const getResponsavelFinanceiro = (paciente) => {
-    if (paciente.responsavel_financeiro_tipo === 'proprio_paciente') {
-      return {
-        nome: paciente.nome_completo,
-        telefone: paciente.telefone,
-        email: paciente.email
-      };
-    } else if (paciente.responsavel_financeiro_tipo === 'responsavel_legal') {
-      return {
-        nome: paciente.nome_responsavel_legal,
-        telefone: paciente.telefone_responsavel_legal,
-        email: paciente.email_responsavel_legal
-      };
-    } else {
-      return {
-        nome: paciente.nome_responsavel_financeiro,
-        telefone: paciente.telefone_responsavel_financeiro,
-        email: paciente.email_responsavel_financeiro
-      };
-    }
   };
 
   const statusContratoConfig = {
@@ -410,6 +376,21 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
                   className="pl-10"
                 />
               </div>
+
+              {/* FILTER DROPDOWN */}
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Status Pagamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos os Status</SelectItem>
+                  <SelectItem value="pago">Pago</SelectItem>
+                  <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="atrasado">Atrasado</SelectItem>
+                  <SelectItem value="sem_atendimento">Sem Atendimento</SelectItem>
+                </SelectContent>
+              </Select>
+
               <Button
                 onClick={handleAtualizarDados}
                 disabled={isRefreshing}
@@ -429,7 +410,7 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
             </p>
           </div>
 
-          {pacientesFiltrados.length === 0 ? (
+          {filteredAndSortedData.length === 0 ? (
             <div className="text-center py-12">
               <DollarSign className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <p className="text-slate-500">Nenhum paciente encontrado</p>
@@ -439,22 +420,70 @@ export default function GestaoFinanceiraPacientes({ pacientes, pagamentos, notas
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="font-semibold">Paciente</TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('paciente')}
+                    >
+                      <div className="flex items-center">
+                        Paciente
+                        <SortIcon columnKey="paciente" />
+                      </div>
+                    </TableHead>
                     <TableHead className="font-semibold">Responsável Financeiro</TableHead>
                     <TableHead className="font-semibold">Contrato</TableHead>
-                    <TableHead className="font-semibold">Vencimento</TableHead>
-                    <TableHead className="font-semibold">Atendimentos</TableHead>
-                    <TableHead className="font-semibold">Valor Contratado</TableHead>
-                    <TableHead className="font-semibold">Valor Devido</TableHead>
-                    <TableHead className="font-semibold">Status Pagamento</TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('vencimento')}
+                    >
+                      <div className="flex items-center">
+                        Vencimento
+                        <SortIcon columnKey="vencimento" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('atendimentos')}
+                    >
+                      <div className="flex items-center">
+                        Atendimentos
+                        <SortIcon columnKey="atendimentos" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('valorContratado')}
+                    >
+                      <div className="flex items-center">
+                        Valor Contratado
+                        <SortIcon columnKey="valorContratado" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('valorDevido')}
+                    >
+                      <div className="flex items-center">
+                        Valor Devido
+                        <SortIcon columnKey="valorDevido" />
+                      </div>
+                    </TableHead>
+                    <TableHead
+                      className="font-semibold cursor-pointer hover:bg-slate-100 transition-colors"
+                      onClick={() => requestSort('status')}
+                    >
+                      <div className="flex items-center">
+                        Status Pagamento
+                        <SortIcon columnKey="status" />
+                      </div>
+                    </TableHead>
                     <TableHead className="font-semibold">Nota Fiscal</TableHead>
                     <TableHead className="font-semibold text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pacientesFiltrados.map((paciente) => {
-                    const dados = getDadosFinanceirosPaciente(paciente);
-                    const responsavel = getResponsavelFinanceiro(paciente);
+                  {filteredAndSortedData.map((paciente) => {
+                    const dados = paciente.financeiro;
+                    const responsavel = paciente.responsavel;
                     const statusConfig = dados.contratoAtivo
                       ? statusContratoConfig[dados.contratoAtivo.status]
                       : null;

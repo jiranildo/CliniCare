@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from "react";
+import { useViewPreference } from "@/hooks/useViewPreference";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { UserCog, Plus, Search, Users, Shield, AlertTriangle } from "lucide-react";
+import { UserCog, Plus, Users, Shield, AlertTriangle, MoreVertical, Edit, Trash2 } from "lucide-react";
+import ViewHeader from "@/components/common/ViewHeader";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +25,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import ProfissionalModal from "@/components/profissionais/ProfissionalModal";
 import ProfissionalCard from "@/components/profissionais/ProfissionalCard";
@@ -24,6 +42,7 @@ export default function Profissionais() {
   const [editingProfissional, setEditingProfissional] = useState(null);
   const [deletingProfissional, setDeletingProfissional] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useViewPreference('profissionais-view-mode', 'cards');
   const [currentUser, setCurrentUser] = useState(null);
   const queryClient = useQueryClient();
 
@@ -201,66 +220,138 @@ export default function Profissionais() {
         </Card>
       </div>
 
-      <Card className="border-none shadow-lg">
-        <CardContent className="p-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
-            <Input
-              placeholder="Buscar por nome, especialidade, registro ou email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+      <ViewHeader
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        placeholder="Buscar por nome, especialidade, registro ou email..."
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+      />
+
+      {
+        isLoading ? (
+          <div className="text-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto"></div>
+            <p className="text-slate-500 mt-4">Carregando profissionais...</p>
           </div>
-        </CardContent>
-      </Card>
+        ) : profissionaisFiltrados.length === 0 ? (
+          <Card className="border-none shadow-lg">
+            <CardContent className="text-center py-12">
+              <UserCog className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-slate-600 mb-2">
+                {searchTerm ? 'Nenhum profissional encontrado' : 'Nenhum profissional cadastrado'}
+              </h3>
+              <p className="text-slate-400 mb-6">
+                {searchTerm ? 'Tente buscar com outros termos' : 'Cadastre o primeiro profissional do sistema'}
+              </p>
+              {isAdmin && !searchTerm && (
+                <Button
+                  onClick={handleNovoProfissional}
+                  className="bg-gradient-to-r from-cyan-500 to-teal-500"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Cadastrar Primeiro Profissional
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : viewMode === 'cards' ? (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {profissionaisFiltrados.map((profissional) => (
+              <ProfissionalCard
+                key={profissional.id}
+                profissional={profissional}
+                onEdit={handleEdit}
+                onDelete={isAdmin ? handleDeleteRequest : undefined}
+                isCurrentUser={profissional.id === currentUser?.id}
+              />
+            ))}
+          </div>
+        ) : (
+          <Card className="border-none shadow-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 hover:bg-slate-50">
+                  <TableHead className="w-[300px]">Profissional</TableHead>
+                  <TableHead>Especialidade</TableHead>
+                  <TableHead>Registro</TableHead>
+                  <TableHead>Contato</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {profissionaisFiltrados.map((profissional) => (
+                  <TableRow key={profissional.id}>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 font-bold overflow-hidden">
+                          {profissional.avatar_url ? (
+                            <img src={profissional.avatar_url} alt={profissional.full_name} className="w-full h-full object-cover" />
+                          ) : (
+                            profissional.full_name?.substring(0, 2).toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-slate-800 font-semibold">{profissional.full_name}</p>
+                          {profissional.tipo_profissional && (
+                            <p className="text-xs text-slate-500 capitalize">{profissional.tipo_profissional.replace('_', ' ')}</p>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>{profissional.especialidade || '-'}</TableCell>
+                    <TableCell>{profissional.registro_profissional || '-'}</TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        <p>{profissional.email}</p>
+                        <p className="text-slate-500">{profissional.telefone || '-'}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <span className="sr-only">Abrir menu</span>
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => handleEdit(profissional)}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Editar
+                          </DropdownMenuItem>
+                          {isAdmin && profissional.id !== currentUser?.id && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-700"
+                                onClick={() => handleDeleteRequest(profissional)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        )
+      }
 
-      {isLoading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600 mx-auto"></div>
-          <p className="text-slate-500 mt-4">Carregando profissionais...</p>
-        </div>
-      ) : profissionaisFiltrados.length === 0 ? (
-        <Card className="border-none shadow-lg">
-          <CardContent className="text-center py-12">
-            <UserCog className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-600 mb-2">
-              {searchTerm ? 'Nenhum profissional encontrado' : 'Nenhum profissional cadastrado'}
-            </h3>
-            <p className="text-slate-400 mb-6">
-              {searchTerm ? 'Tente buscar com outros termos' : 'Cadastre o primeiro profissional do sistema'}
-            </p>
-            {isAdmin && !searchTerm && (
-              <Button
-                onClick={handleNovoProfissional}
-                className="bg-gradient-to-r from-cyan-500 to-teal-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Cadastrar Primeiro Profissional
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {profissionaisFiltrados.map((profissional) => (
-            <ProfissionalCard
-              key={profissional.id}
-              profissional={profissional}
-              onEdit={handleEdit}
-              onDelete={isAdmin ? handleDeleteRequest : undefined}
-              isCurrentUser={profissional.id === currentUser?.id}
-            />
-          ))}
-        </div>
-      )}
-
-      {showModal && (
-        <ProfissionalModal
-          profissional={editingProfissional}
-          onClose={handleClose}
-        />
-      )}
+      {
+        showModal && (
+          <ProfissionalModal
+            profissional={editingProfissional}
+            onClose={handleClose}
+          />
+        )
+      }
 
       <AlertDialog open={!!deletingProfissional} onOpenChange={() => setDeletingProfissional(null)}>
         <AlertDialogContent>
@@ -290,6 +381,6 @@ export default function Profissionais() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </div >
   );
 }
